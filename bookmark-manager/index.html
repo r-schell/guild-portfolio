@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bookmark Manager</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #f5f0e8;
+      --surface: #ede8dc;
+      --border:  #8a8070;
+      --accent:  #5a7a4a;
+      --text:    #2a2520;
+      --muted:   #6a6058;
+      --danger:  #8b3a3a;
+      --tag-bg:  #d4c9b0;
+      --tag-act: #5a7a4a;
+      --fav:     #c8a020;
+    }
+
+    body {
+      font-family: "Courier New", Courier, monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* fix #14: flexbox column so #main can flex-grow instead of using calc() */
+    .page {
+      max-width: 960px;
+      margin: 0 auto;
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 2px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    header h1 { font-size: 1.25rem; letter-spacing: 0.05em; flex: 1; }
+    header h1 span { color: var(--accent); }
+
+    /* fix #4: corruption banner */
+    #error-banner {
+      display: none;
+      background: #5c2020;
+      color: #f8d0d0;
+      padding: 8px 20px;
+      font-size: 0.8rem;
+      border-bottom: 1px solid var(--danger);
+    }
+    #error-banner.visible { display: block; }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    #search {
+      flex: 1;
+      min-width: 160px;
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 0.875rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    #sort-select {
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 0.875rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    /* ── Layout ── */
+    /* fix #14: flex: 1 fills remaining height without a magic number */
+    #main {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      flex: 1;
+    }
+
+    /* ── Tag sidebar ── */
+    #tag-sidebar {
+      border-right: 1px solid var(--border);
+      padding: 14px 12px;
+      background: var(--surface);
+    }
+
+    #tag-sidebar h2 {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .tag-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 4px 6px;
+      margin-bottom: 4px;
+      font-family: inherit;
+      font-size: 0.8rem;
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .tag-btn.active { background: var(--tag-act); color: #fff; border-color: var(--tag-act); }
+    .tag-btn:hover:not(.active) { background: var(--border); }
+
+    /* ── Card area ── */
+    #card-area { padding: 16px 20px; }
+
+    /* ── Inline form ── */
+    .bm-form {
+      border: 2px solid var(--accent);
+      background: var(--surface);
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .bm-form h3 {
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .form-row { display: flex; flex-direction: column; margin-bottom: 8px; }
+
+    .form-row label {
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 3px;
+    }
+
+    .form-row input,
+    .form-row textarea {
+      font-family: inherit;
+      font-size: 0.875rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 8px;
+      resize: vertical;
+    }
+
+    .form-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+    /* fix #11: inline form error instead of alert() */
+    .form-error {
+      display: none;
+      font-size: 0.8rem;
+      color: var(--danger);
+      margin-top: 6px;
+    }
+    .form-error.visible { display: block; }
+
+    /* ── Buttons ── */
+    button {
+      font-family: inherit;
+      font-size: 0.8rem;
+      cursor: pointer;
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    button:hover { background: var(--border); }
+
+    /* fix #12: removed .btn-add (identical to .btn-primary) */
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .btn-primary:hover { filter: brightness(1.1); }
+
+    .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+    .btn-danger:hover { filter: brightness(1.1); }
+
+    /* ── Cards ── */
+    .card {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+
+    .card-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+
+    .card-title { font-size: 1rem; font-weight: bold; flex: 1; word-break: break-word; }
+
+    .fav-btn {
+      background: none;
+      border: none;
+      padding: 0 3px;
+      font-size: 3rem;
+      color: var(--muted);
+      cursor: pointer;
+      line-height: 0.5;
+    }
+    .fav-btn.active { color: var(--fav); }
+    .fav-btn:hover { background: none; color: var(--fav); }
+
+    .card-url {
+      font-size: 0.8rem;
+      color: var(--accent);
+      word-break: break-all;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card-url a { color: inherit; text-decoration: none; }
+    .card-url a:hover { text-decoration: underline; }
+
+    .copy-btn {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .copy-btn:hover { background: var(--border); }
+
+    .card-notes {
+      font-size: 0.825rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+
+    .tag-pill {
+      font-size: 0.75rem;
+      padding: 2px 7px;
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .tag-pill:hover { background: var(--border); }
+
+    .card-actions { display: flex; gap: 6px; align-items: center; }
+
+    .empty-state { color: var(--muted); font-size: 0.875rem; padding: 20px 0; }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      #main { grid-template-columns: 1fr; }
+      #tag-sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <h1>[<span>bookmark</span>]</h1>
+  <!-- fix #12: use .btn-primary directly instead of the duplicate .btn-add -->
+  <button class="btn-primary" id="open-add-btn">+ Add Bookmark</button>
+</header>
+
+<!-- fix #4: shown when localStorage data cannot be parsed -->
+<div id="error-banner">
+  Bookmark data could not be loaded — the stored data may be corrupted. Starting with an empty list.
+</div>
+
+<div id="toolbar">
+  <!-- fix #3: type="text" removes the browser-native clear button whose event behaviour differs across browsers -->
+  <input type="text" id="search" placeholder="Search titles and notes..." />
+  <select id="sort-select">
+    <option value="newest">Newest first</option>
+    <option value="oldest">Oldest first</option>
+    <option value="alpha">A → Z</option>
+    <option value="alpha-desc">Z → A</option>
+  </select>
+</div>
+
+<div id="main">
+  <aside id="tag-sidebar">
+    <h2>Tags</h2>
+    <div id="tag-list"></div>
+  </aside>
+
+  <section id="card-area">
+    <div id="add-form-slot"></div>
+    <div id="bookmark-list"></div>
+  </section>
+</div>
+
+</div><!-- .page  fix #1: .page is now correctly closed here, before <script> -->
+
+<script>
+  // ── Storage ──────────────────────────────────────────────────────────────
+  const STORAGE_KEY = 'bm_bookmarks';
+  let loadError = false;                              // fix #4
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    catch { loadError = true; return []; }            // fix #4: flag instead of silent discard
+  }
+
+  function save(list) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let bookmarks  = load();
+  let activeTag  = null;
+  let editingId  = null;
+  let addFormOpen = false;
+  let searchQuery = '';                               // fix #9: JS state, not DOM reads
+  let sortOrder   = 'newest';                        // fix #9
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function parseTags(raw) {
+    return raw.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+  }
+
+  function allTags() {
+    const set = new Set();
+    bookmarks.forEach(b => b.tags.forEach(t => set.add(t)));
+    return [...set].sort();
+  }
+
+  // Prepend https:// when the user omits a protocol
+  function normalizeUrl(raw) {
+    return /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+  }
+
+  // fix #5 & #6: validate hostname has domain.tld structure; javascript: and other
+  // non-http schemes are blocked because they produce an invalid hostname
+  function isValidUrl(url) {
+    try {
+      const u = new URL(normalizeUrl(url));
+      return /^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(u.hostname);
+    } catch { return false; }
+  }
+
+  // fix #7: fallback for non-secure contexts where navigator.clipboard is unavailable
+  function fallbackCopy(text, onSuccess) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); onSuccess(); } catch {}
+    document.body.removeChild(ta);
+  }
+
+  function filtered() {
+    const q = searchQuery.trim().toLowerCase();       // fix #9: read from state, not DOM
+    let list = bookmarks.slice();
+
+    if (activeTag) list = list.filter(b => b.tags.includes(activeTag));
+    if (q) list = list.filter(b =>
+      b.title.toLowerCase().includes(q) ||
+      b.notes.toLowerCase().includes(q)
+    );
+
+    if (sortOrder === 'newest')      list.sort((a, b) => b.createdAt - a.createdAt);
+    else if (sortOrder === 'oldest') list.sort((a, b) => a.createdAt - b.createdAt);
+    else if (sortOrder === 'alpha')  list.sort((a, b) => a.title.localeCompare(b.title));
+    else                             list.sort((a, b) => b.title.localeCompare(a.title));
+
+    return list;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  function render() {
+    document.getElementById('error-banner').classList.toggle('visible', loadError); // fix #4
+    renderTags();
+    renderCards();
+  }
+
+  function renderTags() {
+    const el = document.getElementById('tag-list');
+    const tags = allTags();
+    el.innerHTML = '';
+
+    if (tags.length === 0) {
+      el.innerHTML = '<span style="font-size:0.75rem;color:var(--muted)">No tags yet</span>';
+      return;
+    }
+
+    const allBtn = document.createElement('button');
+    allBtn.className = 'tag-btn' + (activeTag === null ? ' active' : '');
+    allBtn.textContent = 'All';
+    allBtn.addEventListener('click', () => { activeTag = null; render(); });
+    el.appendChild(allBtn);
+
+    tags.forEach(tag => {
+      const btn = document.createElement('button');
+      btn.className = 'tag-btn' + (activeTag === tag ? ' active' : '');
+      btn.textContent = tag;
+      btn.addEventListener('click', () => {
+        activeTag = activeTag === tag ? null : tag;
+        render();
+      });
+      el.appendChild(btn);
+    });
+  }
+
+  function renderCards() {
+    const listEl  = document.getElementById('bookmark-list');
+    const addSlot = document.getElementById('add-form-slot');
+
+    addSlot.innerHTML = '';
+    if (addFormOpen) addSlot.appendChild(buildForm(null));
+
+    listEl.innerHTML = '';
+    const list = filtered();
+
+    if (list.length === 0) {
+      listEl.innerHTML = '<p class="empty-state">No bookmarks found.</p>';
+      return;
+    }
+
+    list.forEach(bm => {
+      listEl.appendChild(editingId === bm.id ? buildForm(bm) : buildCard(bm));
+    });
+  }
+
+  // ── Form builder ──────────────────────────────────────────────────────────
+  // fix #8: unique per-form ID prefix so IDs are never duplicated in the document
+  let formSeq = 0;
+
+  function buildForm(bm) {
+    const isEdit = bm !== null;
+    const p = ++formSeq;
+    const wrap = document.createElement('div');
+    wrap.className = 'bm-form';
+
+    // fix #10: textarea has no user content in the template — value is set via .value below
+    wrap.innerHTML = `
+      <h3>${isEdit ? 'Edit Bookmark' : 'New Bookmark'}</h3>
+      <div class="form-row">
+        <label for="f-title-${p}">Title *</label>
+        <input id="f-title-${p}" type="text" placeholder="My favourite site" />
+      </div>
+      <div class="form-row">
+        <label for="f-url-${p}">URL *</label>
+        <input id="f-url-${p}" type="text" placeholder="https://example.com" />
+      </div>
+      <div class="form-row">
+        <label for="f-notes-${p}">Notes</label>
+        <textarea id="f-notes-${p}" rows="3" placeholder="Optional notes..."></textarea>
+      </div>
+      <div class="form-row">
+        <label for="f-tags-${p}">Tags <span style="color:var(--muted)">(comma-separated)</span></label>
+        <input id="f-tags-${p}" type="text" placeholder="dev, reading, tools" />
+      </div>
+      <div class="form-actions">
+        <button class="btn-primary f-save">${isEdit ? 'Save Changes' : 'Add'}</button>
+        <button class="f-cancel">Cancel</button>
+      </div>
+      <p class="form-error f-error"></p>
+    `;
+
+    // fix #10: set field values via .value, never via innerHTML
+    wrap.querySelector(`#f-title-${p}`).value = isEdit ? bm.title : '';
+    wrap.querySelector(`#f-url-${p}`).value   = isEdit ? bm.url   : '';
+    wrap.querySelector(`#f-notes-${p}`).value = isEdit ? bm.notes : '';
+    wrap.querySelector(`#f-tags-${p}`).value  = isEdit ? bm.tags.join(', ') : '';
+
+    const errorEl = wrap.querySelector('.f-error');
+
+    // fix #11: inline error instead of alert()
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.add('visible');
+    }
+
+    wrap.querySelector('.f-save').addEventListener('click', () => {
+      const title = wrap.querySelector(`#f-title-${p}`).value.trim();
+      const url   = normalizeUrl(wrap.querySelector(`#f-url-${p}`).value.trim());
+      const notes = wrap.querySelector(`#f-notes-${p}`).value.trim();
+      const tags  = parseTags(wrap.querySelector(`#f-tags-${p}`).value);
+
+      errorEl.classList.remove('visible');
+
+      if (!title)           { showError('Title is required.'); return; }
+      if (!url)             { showError('URL is required.'); return; }
+      if (!isValidUrl(url)) { showError('Enter a valid domain, e.g. example.com or https://example.com.'); return; } // fix #5 & #6
+
+      const favorite = tags.includes('favorites');
+
+      if (isEdit) {
+        const idx = bookmarks.findIndex(b => b.id === bm.id);
+        bookmarks[idx] = { ...bookmarks[idx], title, url, notes, tags, favorite };
+        editingId = null;
+      } else {
+        bookmarks.unshift({ id: crypto.randomUUID(), title, url, notes, tags, createdAt: Date.now(), favorite });
+        addFormOpen = false;
+      }
+
+      save(bookmarks);
+      render();
+    });
+
+    wrap.querySelector('.f-cancel').addEventListener('click', () => {
+      if (isEdit) editingId = null;
+      else addFormOpen = false;
+      render();
+    });
+
+    return wrap;
+  }
+
+  // ── Card builder ──────────────────────────────────────────────────────────
+  // fix #17: full createElement approach — user data goes through textContent/setAttribute,
+  //          never through innerHTML, eliminating reliance on esc() for correctness
+  function buildCard(bm) {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'card-header';
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'card-title';
+    titleSpan.textContent = bm.title;
+
+    const favBtn = document.createElement('button');
+    favBtn.className = 'fav-btn' + (bm.favorite ? ' active' : '');
+    favBtn.title = 'Toggle favourite';
+    favBtn.textContent = '★';
+
+    header.append(titleSpan, favBtn);
+
+    // URL row
+    const urlDiv = document.createElement('div');
+    urlDiv.className = 'card-url';
+
+    const link = document.createElement('a');
+    link.href = bm.url;                              // safe: validated as http/https on save
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = bm.url;
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.textContent = '[copy]';
+
+    urlDiv.append(link, copyBtn);
+    card.append(header, urlDiv);
+
+    // Notes
+    if (bm.notes) {
+      const notesP = document.createElement('p');
+      notesP.className = 'card-notes';
+      notesP.textContent = bm.notes;
+      card.appendChild(notesP);
+    }
+
+    // Tags
+    if (bm.tags.length) {
+      const tagsDiv = document.createElement('div');
+      tagsDiv.className = 'card-tags';
+      bm.tags.forEach(t => {
+        const pill = document.createElement('button');
+        pill.className = 'tag-pill';
+        pill.dataset.tag = t;
+        pill.textContent = t;
+        pill.addEventListener('click', () => { activeTag = t; render(); });
+        tagsDiv.appendChild(pill);
+      });
+      card.appendChild(tagsDiv);
+    }
+
+    // Actions
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'card-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-danger';
+    deleteBtn.textContent = 'Delete';
+
+    actionsDiv.append(editBtn, deleteBtn);
+    card.appendChild(actionsDiv);
+
+    // ── Event listeners ───────────────────────────────────────────────────
+
+    favBtn.addEventListener('click', () => {
+      const idx = bookmarks.findIndex(b => b.id === bm.id);
+      const entry = bookmarks[idx];
+      entry.favorite = !entry.favorite;
+      if (entry.favorite) {
+        if (!entry.tags.includes('favorites')) entry.tags.push('favorites');
+      } else {
+        entry.tags = entry.tags.filter(t => t !== 'favorites');
+      }
+      save(bookmarks);
+      render();
+    });
+
+    // fix #7: clipboard fallback for non-secure contexts
+    copyBtn.addEventListener('click', () => {
+      const done = () => {
+        copyBtn.textContent = '[copied!]';
+        setTimeout(() => { copyBtn.textContent = '[copy]'; }, 1500);
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(bm.url).then(done).catch(() => fallbackCopy(bm.url, done));
+      } else {
+        fallbackCopy(bm.url, done);
+      }
+    });
+
+    editBtn.addEventListener('click', () => {
+      addFormOpen = false;
+      editingId = bm.id;
+      render();
+    });
+
+    // fix #11: two-click confirm instead of confirm() dialog
+    let deleteArmed = false;
+    let deleteTimer = null;
+
+    deleteBtn.addEventListener('click', () => {
+      if (deleteArmed) {
+        clearTimeout(deleteTimer);
+        bookmarks = bookmarks.filter(b => b.id !== bm.id);
+        // fix #2: clear stale activeTag if its last bookmark was just deleted
+        if (activeTag && !bookmarks.some(b => b.tags.includes(activeTag))) activeTag = null;
+        save(bookmarks);
+        render();
+      } else {
+        deleteArmed = true;
+        deleteBtn.textContent = 'Confirm delete?';
+        deleteTimer = setTimeout(() => {
+          deleteArmed = false;
+          deleteBtn.textContent = 'Delete';
+        }, 3000);
+      }
+    });
+
+    return card;
+  }
+
+  // ── Wire up global controls ───────────────────────────────────────────────
+  document.getElementById('open-add-btn').addEventListener('click', () => {
+    editingId = null;
+    addFormOpen = !addFormOpen;
+    render();
+  });
+
+  // fix #9: store query in state; fix #15: debounce keystrokes
+  let searchTimer = null;
+  document.getElementById('search').addEventListener('input', e => {
+    searchQuery = e.target.value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(render, 150);
+  });
+
+  // fix #9: store sort order in state
+  document.getElementById('sort-select').addEventListener('change', e => {
+    sortOrder = e.target.value;
+    render();
+  });
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  render();
+</script>
+</body>
+</html>
